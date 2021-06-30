@@ -511,7 +511,8 @@ namespace GitHub.Runner.Worker
                 }
 
                 _record.WarningCount++;
-            } else if (issue.Type == IssueType.Notice) 
+            } 
+            else if (issue.Type == IssueType.Notice) 
             {
 
                 // tracking line number for each issue in log file
