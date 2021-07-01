@@ -201,9 +201,9 @@ namespace GitHub.Runner.Worker
         {
             var configurationStore = HostContext.GetService<IConfigurationStore>();
             var allowedBranches = configurationStore.GetSettings()
-                .AllowedBranches.Split(",").Select(s => s.Trim()).ToArray();
+                .AllowedBranches?.Split(",")?.Select(s => s.Trim())?.ToArray();
             
-            if (allowedBranches.Length == 0)
+            if (allowedBranches == null || allowedBranches.Length == 0)
             {
                 return true;
             }
