@@ -10,6 +10,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Net.Http;
+using GitHub.DistributedTask.Pipelines.ContextData;
 using GitHub.Runner.Common;
 using GitHub.Runner.Sdk;
 
@@ -63,6 +64,13 @@ namespace GitHub.Runner.Worker
                 jobContext.InitializeJob(message, jobRequestCancellationToken);
                 Trace.Info("Starting the job execution context.");
                 jobContext.Start();
+                if (!JobPassesSecurityRestrictions(jobContext))
+                {
+                    var configurationStore = HostContext.GetService<IConfigurationStore>();
+                    var settings = configurationStore.GetSettings();
+                    jobContext.Error($"Job cancelled by security policy. Only {settings.AllowedBranches} branch(s) are allowed.");
+                    return await CompleteJobAsync(jobServer, jobContext, message, TaskResult.Failed);
+                }
                 jobContext.Debug($"Starting: {message.JobDisplayName}");
 
                 runnerShutdownRegistration = HostContext.RunnerShutdownToken.Register(() =>
@@ -186,6 +194,42 @@ namespace GitHub.Runner.Worker
                 }
 
                 await ShutdownQueue(throwOnFailure: false);
+            }
+        }
+        
+        private bool JobPassesSecurityRestrictions(IExecutionContext jobContext)
+        {
+            var configurationStore = HostContext.GetService<IConfigurationStore>();
+            var allowedBranches = configurationStore.GetSettings()
+                .AllowedBranches.Split(",").Select(s => s.Trim()).ToArray();
+            
+            if (allowedBranches.Length == 0)
+            {
+                return true;
+            }
+            
+            var gitHubContext = jobContext.ExpressionValues["github"] as GitHubContext;
+            if (gitHubContext == null)
+            {
+                return false;
+            }
+            
+            gitHubContext.TryGetValue("event_name", out var eventNameData);
+            gitHubContext.TryGetValue("ref", out var refData);
+            var refName = (refData as StringContextData)?.ToString() ?? "";
+            var eventName = (eventNameData as StringContextData)?.ToString() ?? "";
+
+            try
+            {
+                return eventName == "push" &&
+                       refName.StartsWith("refs/heads/") && allowedBranches.Contains(refName.Split("/").Last());
+            }
+            catch (Exception ex)
+            {
+                Trace.Error("Caught exception in JobPassesSecurityRestrictions");
+                Trace.Error("As a safety precaution we are not allowing this job to run");
+                Trace.Error(ex);
+                return false;
             }
         }
 
